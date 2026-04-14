@@ -1,20 +1,36 @@
-import { cleanKeyword, formatBytes, normalizeMagnet, toIsoDate } from "@/lib/utils";
+import { cleanKeyword, normalizeMagnet, toIsoDate } from "@/lib/utils";
 import type { ProviderResult, SearchProvider, SearchQuery, SearchResultItem } from "@/lib/types";
+
+interface BangumiMoeTag {
+  name?: string;
+  locale?: { zh_cn?: string; zh_tw?: string; ja?: string; en?: string };
+}
 
 interface BangumiMoeTorrent {
   _id?: string;
   title?: string;
-  category_tag?: string;
+  category_tag?: BangumiMoeTag | null;
+  category_tag_id?: string;
   content?: string;
+  introduction?: string;
   publish_time?: string;
-  size?: number;
+  // Upstream returns size as a pre-formatted string (e.g. "274.61 MB"), not bytes.
+  size?: string;
   seeders?: number;
   leechers?: number;
-  info_hash?: string;
+  infoHash?: string;
   magnet?: string;
   torrent?: string;
   download?: string;
-  tags?: Array<{ name?: string } | string>;
+  team?: { name?: string } | null;
+  tag_ids?: string[];
+  tags?: Array<BangumiMoeTag | string>;
+}
+
+function tagLabel(tag: BangumiMoeTag | string | null | undefined): string | undefined {
+  if (!tag) return undefined;
+  if (typeof tag === "string") return tag;
+  return tag.locale?.zh_cn || tag.locale?.zh_tw || tag.locale?.ja || tag.locale?.en || tag.name;
 }
 
 interface BangumiMoeResponse {
@@ -23,7 +39,7 @@ interface BangumiMoeResponse {
 }
 
 const DEFAULT_BASE = process.env.BANGUMI_MOE_API_BASE || "https://bangumi.moe";
-const DEFAULT_PATH = process.env.BANGUMI_MOE_SEARCH_PATH || "/api/torrent/search";
+const DEFAULT_PATH = process.env.BANGUMI_MOE_SEARCH_PATH || "/api/v2/torrent/search";
 
 export class BangumiMoeProvider implements SearchProvider {
   readonly source = "bangumi-moe" as const;
@@ -36,15 +52,15 @@ export class BangumiMoeProvider implements SearchProvider {
     }
 
     const url = new URL(DEFAULT_PATH, DEFAULT_BASE);
-    url.searchParams.set("keyword", keyword);
-    url.searchParams.set("limit", String(query.limit ?? 20));
-    url.searchParams.set("offset", String(query.offset ?? 0));
 
     try {
       const response = await fetch(url, {
+        method: "POST",
         headers: {
-          accept: "application/json"
+          accept: "application/json",
+          "content-type": "application/json"
         },
+        body: JSON.stringify({ query: keyword }),
         next: { revalidate: 0 }
       });
 
@@ -56,7 +72,11 @@ export class BangumiMoeProvider implements SearchProvider {
       }
 
       const payload = (await response.json()) as BangumiMoeResponse;
-      const items = (payload.torrents ?? []).map((torrent) => this.mapItem(torrent));
+      const limit = query.limit ?? 20;
+      const offset = query.offset ?? 0;
+      const items = (payload.torrents ?? [])
+        .slice(offset, offset + limit)
+        .map((torrent) => this.mapItem(torrent));
       return { items };
     } catch (error) {
       return {
@@ -72,18 +92,21 @@ export class BangumiMoeProvider implements SearchProvider {
 
   private mapItem(torrent: BangumiMoeTorrent): SearchResultItem {
     const title = torrent.title || "未命名资源";
-    const infoHash = torrent.info_hash;
+    const infoHash = torrent.infoHash;
     const tags = (torrent.tags ?? [])
-      .map((tag) => (typeof tag === "string" ? tag : tag.name))
+      .map(tagLabel)
       .filter((value): value is string => Boolean(value));
+    if (torrent.team?.name) {
+      tags.unshift(torrent.team.name);
+    }
 
     return {
       id: torrent._id || `bangumi-${infoHash || title}`,
       title,
-      subtitle: torrent.content || torrent.category_tag,
+      subtitle: torrent.content || tagLabel(torrent.category_tag),
       source: this.source,
       publishedAt: toIsoDate(torrent.publish_time),
-      size: typeof torrent.size === "number" ? formatBytes(torrent.size) : undefined,
+      size: typeof torrent.size === "string" ? torrent.size : undefined,
       seeders: torrent.seeders,
       leechers: torrent.leechers,
       infoHash,
