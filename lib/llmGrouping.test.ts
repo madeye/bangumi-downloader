@@ -18,11 +18,13 @@ function mkItem(title: string): SearchResultItem {
 describe("buildSeriesRemap", () => {
   beforeEach(() => {
     createMock.mockReset();
-    process.env.MINIMAX_API_KEY = "test-key";
+    process.env.LLM_API_KEY = "test-key";
+    process.env.LLM_BASE_URL = "https://example.com/anthropic";
+    process.env.LLM_MODEL = "test-model";
   });
 
-  it("returns empty map when MINIMAX_API_KEY is unset", async () => {
-    delete process.env.MINIMAX_API_KEY;
+  it("returns empty map when LLM_API_KEY is unset", async () => {
+    delete process.env.LLM_API_KEY;
     const remap = await buildSeriesRemap([
       mkItem("[g] Show A - 01 [1080p]"),
       mkItem("[g] Show B - 01 [1080p]")
