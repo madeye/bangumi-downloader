@@ -2,21 +2,20 @@ import Anthropic from "@anthropic-ai/sdk";
 import { normalizeSeriesKey, parseTitle } from "@/lib/titleParse";
 import type { SearchResultItem } from "@/lib/types";
 
-// LLM-assisted series clustering. The heuristic parser splits releases of the
-// same anime into separate groups whenever the series name appears in a
-// different language or script (e.g. simplified vs. traditional Chinese, or
-// Chinese vs. romaji). This pass asks an LLM to merge those equivalents.
+// LLM-assisted refine pass. Two jobs bundled into one API call to halve the
+// rate-limit pressure on shared backends (Kimi returns 429 "engine
+// overloaded" readily):
+//   1. Cluster series titles — merge simplified/traditional/romaji/English
+//      variants of the same anime so they share a group.
+//   2. Rank fansub/release groups by reputation — used as a tie-breaker when
+//      picking the best release per episode.
 //
-// Returns a remap from original normalized series key -> canonical key. Items
-// whose key is not in the map keep their original grouping.
+// Both outputs fall back to empty on any failure, so the heuristic grouping
+// keeps working when the LLM is unavailable or times out.
 
-// LLM backend config. All three LLM_* env vars are required to enable the
-// refine pass; without them the app falls back to heuristic grouping. Any
-// Anthropic-compatible endpoint works (MiniMax, Kimi, etc.) — the example
-// in .env.example shows the wiring.
-//
-// Typical LLM latency for these prompts is 30–60s, so the timeout has to be
-// generous. The process-wide cache below keeps repeat searches instant.
+// LLM backend config. All three LLM_* env vars are required; without them
+// the app falls back to heuristic grouping. Any Anthropic-compatible
+// endpoint works (MiniMax, Kimi, etc.) — see .env.example.
 const TIMEOUT_MS = 45000;
 
 interface LlmConfig {
@@ -33,160 +32,91 @@ function llmConfig(): LlmConfig | undefined {
   return { apiKey, baseURL, model };
 }
 
-// Process-wide cache: prompts with identical label sets produce identical
-// answers, so we cache on a stable hash of the sorted inputs. Capped to
-// avoid unbounded growth in a long-running server.
-const CACHE_MAX = 200;
-const remapCache = new Map<string, SeriesRemap>();
-const rankingCache = new Map<string, GroupRanking>();
+export type SeriesRemap = Map<string, string>;
+export type GroupRanking = Map<string, number>;
 
-function cacheKey(items: string[]): string {
-  return [...items].map((s) => s.toLowerCase()).sort().join("\u0000");
+export interface LlmRefine {
+  seriesRemap: SeriesRemap;
+  groupRanking: GroupRanking;
 }
 
-function cacheGet<V>(cache: Map<string, V>, key: string): V | undefined {
-  const v = cache.get(key);
+interface CombinedResponse {
+  groups?: Array<{ canonical?: string; originals?: string[] }>;
+  ranking?: string[];
+}
+
+// Process-wide cache keyed on the sorted label+group inputs. Identical
+// inputs produce identical answers, so repeat searches are instant.
+const CACHE_MAX = 200;
+const refineCache = new Map<string, LlmRefine>();
+
+function cacheKey(labels: string[], groups: string[]): string {
+  const norm = (xs: string[]) => [...xs].map((s) => s.toLowerCase()).sort().join("\u0001");
+  return `${norm(labels)}\u0002${norm(groups)}`;
+}
+
+function cacheGet(key: string): LlmRefine | undefined {
+  const v = refineCache.get(key);
   if (v !== undefined) {
-    // LRU touch: re-insert to move to end.
-    cache.delete(key);
-    cache.set(key, v);
+    refineCache.delete(key);
+    refineCache.set(key, v);
   }
   return v;
 }
 
-function cacheSet<V>(cache: Map<string, V>, key: string, value: V): void {
-  cache.set(key, value);
-  if (cache.size > CACHE_MAX) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
+function cacheSet(key: string, value: LlmRefine): void {
+  refineCache.set(key, value);
+  if (refineCache.size > CACHE_MAX) {
+    const oldest = refineCache.keys().next().value;
+    if (oldest !== undefined) refineCache.delete(oldest);
   }
 }
 
-export type SeriesRemap = Map<string, string>;
+const EMPTY: LlmRefine = { seriesRemap: new Map(), groupRanking: new Map() };
 
-interface ClusterResponse {
-  groups?: Array<{ canonical?: string; originals?: string[] }>;
-}
-
-export type GroupRanking = Map<string, number>;
-
-interface RankingResponse {
-  ranking?: string[];
-}
-
-// rankFansubGroups asks the LLM to order fansub groups from most to least
-// reputable/prolific. Returns a Map<normalizedGroupName, score> where higher
-// score = more preferred. Empty map if the LLM is disabled or fails, which
-// downstream code treats as "all groups tie at 0" — leaving seeders as the
-// only tie-breaker.
-export async function rankFansubGroups(groups: string[]): Promise<GroupRanking> {
+export async function refineWithLlm(items: SearchResultItem[]): Promise<LlmRefine> {
   const cfg = llmConfig();
-  if (!cfg) return new Map();
-  const distinct = Array.from(new Set(groups.filter(Boolean)));
-  if (distinct.length < 2) return new Map();
+  if (!cfg) return EMPTY;
 
-  const key = cacheKey(distinct);
-  const cached = cacheGet(rankingCache, key);
-  if (cached) return cached;
-
-  try {
-    const client = new Anthropic({ apiKey: cfg.apiKey, baseURL: cfg.baseURL });
-
-    const response = await Promise.race([
-      client.messages.create({
-        model: cfg.model,
-        max_tokens: 1024,
-        messages: [
-          {
-            role: "user",
-            content: buildRankingPrompt(distinct)
-          }
-        ]
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("llm timeout")), TIMEOUT_MS)
-      )
-    ]);
-
-    const text = extractText(response);
-    const parsed = JSON.parse(stripFences(text)) as RankingResponse;
-    const ranking = buildRanking(parsed.ranking ?? [], distinct);
-    cacheSet(rankingCache, key, ranking);
-    return ranking;
-  } catch {
-    return new Map();
-  }
-}
-
-function buildRankingPrompt(groups: string[]): string {
-  return [
-    "Rank these anime fansub / release groups from MOST to LEAST preferred,",
-    "based on reputation, release quality, and prolific-ness in the anime",
-    "community. Well-known groups (e.g. LoliHouse, 桜都字幕组, ANi, Nekomoe",
-    "kissaten, VCB-Studio, SubsPlease, Erai-raws) should rank higher than",
-    "unknown or single-release groups.",
-    "",
-    "Return ONLY JSON, no prose, no fences. Schema:",
-    '{"ranking":["<best group>","<next>", ...]}',
-    "Include every input group exactly once in the ranking.",
-    "",
-    "Groups:",
-    JSON.stringify(groups)
-  ].join("\n");
-}
-
-function buildRanking(ordered: string[], inputs: string[]): GroupRanking {
-  const inputSet = new Set(inputs.map((g) => g.toLowerCase()));
-  const ranking: GroupRanking = new Map();
-  // Score = N - index so the first element gets the highest score.
-  let rank = ordered.length;
-  for (const g of ordered) {
-    if (inputSet.has(g.toLowerCase())) {
-      ranking.set(g.toLowerCase(), rank--);
-    }
-  }
-  return ranking;
-}
-
-function stripFences(text: string): string {
-  return text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
-}
-
-export async function buildSeriesRemap(items: SearchResultItem[]): Promise<SeriesRemap> {
-  const cfg = llmConfig();
-  if (!cfg) return new Map();
-
-  // Collect distinct (key, label) — LLM gets human-readable labels, we use
-  // labels to reconstruct keys after clustering.
+  // Labels (human-readable series) and the keys we need to emit back.
   const labelToKey = new Map<string, string>();
+  const groupSet = new Set<string>();
   for (const item of items) {
     const parsed = parseTitle(item.title);
     if (parsed.series && parsed.seriesKey && !labelToKey.has(parsed.series)) {
       labelToKey.set(parsed.series, parsed.seriesKey);
     }
+    if (parsed.group) groupSet.add(parsed.group);
   }
-  if (labelToKey.size < 2) return new Map();
-
   const labels = Array.from(labelToKey.keys());
-  const key = cacheKey(labels);
-  const cached = cacheGet(remapCache, key);
+  const groups = Array.from(groupSet);
+
+  // Bail out early when neither task has enough input to be useful.
+  const hasClusterWork = labels.length >= 2;
+  const hasRankWork = groups.length >= 2;
+  if (!hasClusterWork && !hasRankWork) return EMPTY;
+
+  const key = cacheKey(labels, groups);
+  const cached = cacheGet(key);
   if (cached) return cached;
 
   try {
-    const client = new Anthropic({ apiKey: cfg.apiKey, baseURL: cfg.baseURL });
+    // maxRetries: 0 — some Anthropic-compatible backends (Kimi in
+    // particular) return 429 "engine overloaded" during peak hours, and the
+    // SDK's default retries stretch a single call to 50+ seconds. Fail fast
+    // and let the heuristic fallback take over instead.
+    const client = new Anthropic({
+      apiKey: cfg.apiKey,
+      baseURL: cfg.baseURL,
+      maxRetries: 0
+    });
 
     const response = await Promise.race([
       client.messages.create({
         model: cfg.model,
         max_tokens: 2048,
         messages: [
-          {
-            role: "user",
-            content: buildPrompt(labels)
-          }
+          { role: "user", content: buildPrompt(labels, groups) }
         ]
       }),
       new Promise<never>((_, reject) =>
@@ -195,29 +125,43 @@ export async function buildSeriesRemap(items: SearchResultItem[]): Promise<Serie
     ]);
 
     const text = extractText(response);
-    const parsed = parseJson(text);
-    const remap = buildRemap(parsed, labelToKey);
-    cacheSet(remapCache, key, remap);
-    return remap;
+    const parsed = JSON.parse(stripFences(text)) as CombinedResponse;
+    const refine: LlmRefine = {
+      seriesRemap: buildRemap(parsed.groups ?? [], labelToKey),
+      groupRanking: buildRanking(parsed.ranking ?? [], groups)
+    };
+    cacheSet(key, refine);
+    return refine;
   } catch {
-    // Silent fallback — heuristic grouping still works without the LLM.
-    return new Map();
+    return EMPTY;
   }
 }
 
-function buildPrompt(labels: string[]): string {
+function buildPrompt(labels: string[], groups: string[]): string {
   return [
-    "You are clustering anime series titles. Group titles that refer to the SAME anime",
-    "(simplified/traditional Chinese, Japanese, English, romaji are equivalents). Different",
-    "seasons of the same franchise should be grouped together (the season number lives elsewhere).",
-    "Distinct anime must stay separate.",
+    "You are analyzing anime torrent search results. Do BOTH tasks below in one response.",
     "",
-    "Return ONLY a JSON object, no prose, no markdown fences. Schema:",
-    '{"groups":[{"canonical":"<preferred display name>","originals":["<input title>", ...]}]}',
-    "Only emit groups with 2+ originals; singletons can be omitted.",
+    "Task 1 — cluster series titles:",
+    "  Group titles that refer to the SAME anime. Simplified/traditional Chinese,",
+    "  Japanese, English, and romaji names of the same show are equivalents. Different",
+    "  seasons of the same franchise also group together (season number lives elsewhere).",
+    "  Distinct anime must stay separate. Only emit clusters with 2+ originals.",
+    "",
+    "Task 2 — rank fansub/release groups:",
+    "  Order the groups list from MOST to LEAST preferred based on reputation, release",
+    "  quality, and prolific-ness. Well-known groups (LoliHouse, 桜都字幕组, ANi,",
+    "  Nekomoe kissaten, VCB-Studio, SubsPlease, Erai-raws) outrank unknowns. Include",
+    "  every input group exactly once.",
+    "",
+    "Return ONLY JSON, no prose, no markdown fences. Schema:",
+    '{"groups":[{"canonical":"<preferred display name>","originals":["<input title>", ...]}],',
+    ' "ranking":["<best group>", "<next>", ...]}',
     "",
     "Titles:",
-    JSON.stringify(labels)
+    JSON.stringify(labels),
+    "",
+    "Groups:",
+    JSON.stringify(groups)
   ].join("\n");
 }
 
@@ -228,18 +172,23 @@ function extractText(response: Anthropic.Message): string {
     .trim();
 }
 
-function parseJson(text: string): ClusterResponse {
-  return JSON.parse(stripFences(text)) as ClusterResponse;
+function stripFences(text: string): string {
+  return text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
 }
 
-function buildRemap(parsed: ClusterResponse, labelToKey: Map<string, string>): SeriesRemap {
+function buildRemap(
+  clusters: CombinedResponse["groups"],
+  labelToKey: Map<string, string>
+): SeriesRemap {
   const remap: SeriesRemap = new Map();
-  if (!parsed.groups) return remap;
-
-  for (const group of parsed.groups) {
-    const originals = (group.originals ?? []).filter((o) => labelToKey.has(o));
+  if (!clusters) return remap;
+  for (const cluster of clusters) {
+    const originals = (cluster.originals ?? []).filter((o) => labelToKey.has(o));
     if (originals.length < 2) continue;
-    const canonicalLabel = group.canonical || originals[0];
+    const canonicalLabel = cluster.canonical || originals[0];
     const canonicalKey = normalizeSeriesKey(canonicalLabel);
     for (const original of originals) {
       const originalKey = labelToKey.get(original)!;
@@ -247,4 +196,16 @@ function buildRemap(parsed: ClusterResponse, labelToKey: Map<string, string>): S
     }
   }
   return remap;
+}
+
+function buildRanking(ordered: string[], inputs: string[]): GroupRanking {
+  const inputSet = new Set(inputs.map((g) => g.toLowerCase()));
+  const ranking: GroupRanking = new Map();
+  let rank = ordered.length;
+  for (const g of ordered) {
+    if (inputSet.has(g.toLowerCase())) {
+      ranking.set(g.toLowerCase(), rank--);
+    }
+  }
+  return ranking;
 }
