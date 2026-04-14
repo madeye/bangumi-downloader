@@ -198,6 +198,43 @@ export default function HomePage() {
     setCopyStatus(`已触发 ${magnets.length} 个磁力链接`);
   }
 
+  async function downloadSelectedTorrents() {
+    const targets = selectedItems.filter((i) => i.torrentUrl);
+    if (!targets.length) {
+      setCopyStatus("所选项目没有可用种子文件");
+      return;
+    }
+    setCopyStatus(`正在打包 ${targets.length} 个种子...`);
+    try {
+      const response = await fetch("/api/download-zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: targets.map((item) => ({
+            url: item.torrentUrl,
+            filename: `${item.title}.torrent`
+          }))
+        })
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(payload.message || `打包失败 (HTTP ${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `torrents-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setCopyStatus(`已下载 zip，共 ${targets.length} 个种子`);
+    } catch (cause) {
+      setCopyStatus(cause instanceof Error ? cause.message : "打包失败");
+    }
+  }
+
   const totalGroups = data?.groups.length ?? 0;
   const totalUngrouped = data?.ungrouped.length ?? 0;
 
@@ -292,6 +329,9 @@ export default function HomePage() {
         </button>
         <button type="button" onClick={openSelectedMagnets} disabled={selected.size === 0}>
           打开磁力
+        </button>
+        <button type="button" onClick={downloadSelectedTorrents} disabled={selected.size === 0}>
+          下载种子
         </button>
         <button
           type="button"
