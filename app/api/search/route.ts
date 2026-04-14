@@ -25,6 +25,11 @@ export async function GET(request: NextRequest) {
   const preferRaw = searchParams.get("prefer");
   const scriptPreference: ScriptPreference | undefined =
     preferRaw === "simplified" || preferRaw === "traditional" ? preferRaw : undefined;
+  // refine=0 → skip the LLM-backed remap/ranking for a fast first response.
+  // refine=1 (default) → full pass. Client renders refine=0 immediately, then
+  // issues refine=1 in the background and swaps the groups when it returns.
+  const refineRaw = searchParams.get("refine");
+  const useLlm = refineRaw !== "0";
 
   if (!keyword) {
     return NextResponse.json(
@@ -33,13 +38,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await searchTorrents({
-    keyword,
-    limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20,
-    offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0,
-    sources,
-    scriptPreference
-  });
+  const result = await searchTorrents(
+    {
+      keyword,
+      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20,
+      offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0,
+      sources,
+      scriptPreference
+    },
+    { useLlm }
+  );
 
   return NextResponse.json(result, {
     headers: {

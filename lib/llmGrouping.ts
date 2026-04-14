@@ -12,7 +12,40 @@ import type { SearchResultItem } from "@/lib/types";
 
 const DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic";
 const DEFAULT_MODEL = "MiniMax-M2.7";
-const TIMEOUT_MS = 5000;
+// MiniMax latency is often 30–60s for these prompts. 5s was far too
+// aggressive and caused every call to silently fall through to an empty
+// remap. 45s lets the first search for a given result set actually wait for
+// the response; the cache below keeps subsequent searches instant.
+const TIMEOUT_MS = 45000;
+
+// Process-wide cache: prompts with identical label sets produce identical
+// answers, so we cache on a stable hash of the sorted inputs. Capped to
+// avoid unbounded growth in a long-running server.
+const CACHE_MAX = 200;
+const remapCache = new Map<string, SeriesRemap>();
+const rankingCache = new Map<string, GroupRanking>();
+
+function cacheKey(items: string[]): string {
+  return [...items].map((s) => s.toLowerCase()).sort().join("\u0000");
+}
+
+function cacheGet<V>(cache: Map<string, V>, key: string): V | undefined {
+  const v = cache.get(key);
+  if (v !== undefined) {
+    // LRU touch: re-insert to move to end.
+    cache.delete(key);
+    cache.set(key, v);
+  }
+  return v;
+}
+
+function cacheSet<V>(cache: Map<string, V>, key: string, value: V): void {
+  cache.set(key, value);
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+}
 
 export type SeriesRemap = Map<string, string>;
 
@@ -36,6 +69,10 @@ export async function rankFansubGroups(groups: string[]): Promise<GroupRanking> 
   if (!apiKey) return new Map();
   const distinct = Array.from(new Set(groups.filter(Boolean)));
   if (distinct.length < 2) return new Map();
+
+  const key = cacheKey(distinct);
+  const cached = cacheGet(rankingCache, key);
+  if (cached) return cached;
 
   try {
     const client = new Anthropic({
@@ -61,7 +98,9 @@ export async function rankFansubGroups(groups: string[]): Promise<GroupRanking> 
 
     const text = extractText(response);
     const parsed = JSON.parse(stripFences(text)) as RankingResponse;
-    return buildRanking(parsed.ranking ?? [], distinct);
+    const ranking = buildRanking(parsed.ranking ?? [], distinct);
+    cacheSet(rankingCache, key, ranking);
+    return ranking;
   } catch {
     return new Map();
   }
@@ -120,6 +159,9 @@ export async function buildSeriesRemap(items: SearchResultItem[]): Promise<Serie
   if (labelToKey.size < 2) return new Map();
 
   const labels = Array.from(labelToKey.keys());
+  const key = cacheKey(labels);
+  const cached = cacheGet(remapCache, key);
+  if (cached) return cached;
 
   try {
     const client = new Anthropic({
@@ -145,7 +187,9 @@ export async function buildSeriesRemap(items: SearchResultItem[]): Promise<Serie
 
     const text = extractText(response);
     const parsed = parseJson(text);
-    return buildRemap(parsed, labelToKey);
+    const remap = buildRemap(parsed, labelToKey);
+    cacheSet(remapCache, key, remap);
+    return remap;
   } catch {
     // Silent fallback — heuristic grouping still works without the LLM.
     return new Map();

@@ -37,6 +37,7 @@ export interface SearchResultItem {
   series?: string;
   season?: number;
   episode?: number;
+  episodeRange?: [number, number];
   version?: number;
   resolution?: string;
   group?: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type {
   ResultGroup,
   ScriptPreference,
@@ -47,34 +47,67 @@ export default function HomePage() {
   const [data, setData] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isRefining, setIsRefining] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  // Monotonic search id so late-arriving refines for stale searches don't
+  // overwrite the current result set.
+  const searchSeq = useRef(0);
 
   const allItems = useMemo<SearchResultItem[]>(() => {
     if (!data) return [];
     return [...data.groups.flatMap((g) => g.items), ...data.ungrouped];
   }, [data]);
 
-  async function runSearch(
+  async function fetchSearch(
     nextKeyword: string,
     sources: SearchSource[],
-    prefer: ScriptPreference
-  ) {
-    const params = new URLSearchParams({ q: nextKeyword, limit: "48", prefer });
+    prefer: ScriptPreference,
+    refine: boolean
+  ): Promise<SearchResponse> {
+    const params = new URLSearchParams({
+      q: nextKeyword,
+      limit: "48",
+      prefer,
+      refine: refine ? "1" : "0"
+    });
     if (sources.length) params.set("sources", sources.join(","));
-
     const response = await fetch(`/api/search?${params.toString()}`, { cache: "no-store" });
     if (!response.ok) {
       const payload = (await response.json()) as { message?: string };
       throw new Error(payload.message || "搜索失败");
     }
-    const payload = (await response.json()) as SearchResponse;
-    setData(payload);
-    setExpanded(new Set()); // default collapsed on new results
+    return (await response.json()) as SearchResponse;
+  }
+
+  async function runSearch(
+    nextKeyword: string,
+    sources: SearchSource[],
+    prefer: ScriptPreference
+  ) {
+    const requestId = ++searchSeq.current;
+    // First pass: fast heuristic result so the page renders immediately.
+    const fast = await fetchSearch(nextKeyword, sources, prefer, false);
+    if (requestId !== searchSeq.current) return; // newer search started
+    setData(fast);
+    setExpanded(new Set());
     setSelected(new Set());
     setCopyStatus(null);
     setError(null);
+
+    // Second pass: LLM-backed refine runs in the background. Swap in when it
+    // arrives as long as the user hasn't kicked off a newer search.
+    setIsRefining(true);
+    try {
+      const refined = await fetchSearch(nextKeyword, sources, prefer, true);
+      if (requestId !== searchSeq.current) return;
+      setData(refined);
+    } catch {
+      // Refine failure is silent — fast results stay on screen.
+    } finally {
+      if (requestId === searchSeq.current) setIsRefining(false);
+    }
   }
 
   useEffect(() => {
@@ -170,6 +203,7 @@ export default function HomePage() {
 
   return (
     <main className="page-shell">
+      {isRefining ? <div className="progress-bar" role="progressbar" aria-label="智能合并中" /> : null}
       <section className="hero-card">
         <div className="hero-copy">
           <p className="eyebrow">Bangumi Torrent Finder</p>
@@ -238,6 +272,7 @@ export default function HomePage() {
             {data
               ? `去重后共 ${data.total} 条 · ${totalGroups} 个番剧组 · ${totalUngrouped} 条独立`
               : "等待查询"}
+            {isRefining ? " · 智能合并中..." : ""}
             {error ? ` · ${error}` : ""}
           </p>
         </div>
