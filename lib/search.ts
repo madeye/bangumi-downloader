@@ -1,8 +1,15 @@
+import { AcgRipProvider } from "@/lib/providers/acgrip";
 import { BangumiMoeProvider } from "@/lib/providers/bangumi";
-import { DhtProvider } from "@/lib/providers/dht";
+import { DmhyProvider } from "@/lib/providers/dmhy";
+import { NyaaProvider } from "@/lib/providers/nyaa";
 import type { SearchProvider, SearchQuery, SearchResponse, SearchSource } from "@/lib/types";
 
-const providers: SearchProvider[] = [new BangumiMoeProvider(), new DhtProvider()];
+const providers: SearchProvider[] = [
+  new BangumiMoeProvider(),
+  new AcgRipProvider(),
+  new DmhyProvider(),
+  new NyaaProvider()
+];
 
 function selectProviders(sources?: SearchSource[]): SearchProvider[] {
   if (!sources?.length) {
