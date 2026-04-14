@@ -80,6 +80,16 @@ describe("annotateAndGroup per-episode pruning", () => {
     expect(kept).toBe("b");
   });
 
+  it("prefers v2 over v1 for same episode from same group, even with fewer seeders", () => {
+    const items = [
+      mkItem({ id: "v1", title: "[桜都字幕组] Show [01][1080p]", seeders: 100 }),
+      mkItem({ id: "v2", title: "[桜都字幕组] Show [01v2][1080p]", seeders: 5 })
+    ];
+    const { groups, ungrouped } = annotateAndGroup(items);
+    const kept = groups[0]?.items[0]?.id ?? ungrouped[0]?.id;
+    expect(kept).toBe("v2");
+  });
+
   it("merges cross-language series via seriesRemap before pruning", () => {
     const items = [
       mkItem({ id: "a", title: "[G] 弹珠汽水瓶里的千岁同学 - 01 [1080p]", seeders: 5 }),

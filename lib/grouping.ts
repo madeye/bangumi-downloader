@@ -81,6 +81,7 @@ function annotateItem(item: SearchResultItem): SearchResultItem {
     series: parsed.series ?? item.series,
     season: parsed.season ?? item.season,
     episode: parsed.episode ?? item.episode,
+    version: parsed.version ?? item.version,
     resolution: parsed.resolution ?? item.resolution,
     group: parsed.group ?? item.group
   };
@@ -135,6 +136,10 @@ function compareCandidates(
   b: SearchResultItem,
   opts: GroupingOptions
 ): number {
+  // Version bumps (e.g. 01v2) supersede the original release — always prefer
+  // the latest version, even if older versions have more seeders.
+  const verDiff = (b.version ?? 1) - (a.version ?? 1);
+  if (verDiff !== 0) return verDiff;
   if (opts.scriptPreference) {
     const aMatch = detectScript(a.title) === opts.scriptPreference ? 1 : 0;
     const bMatch = detectScript(b.title) === opts.scriptPreference ? 1 : 0;
