@@ -11,12 +11,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "next": "latest",
+    "opencc-js": "^1.0.5",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/opencc-js": "^1.0.3",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",

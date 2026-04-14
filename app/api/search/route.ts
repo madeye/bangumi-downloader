@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchTorrents } from "@/lib/search";
-import type { SearchSource } from "@/lib/types";
+import type { ScriptPreference, SearchSource } from "@/lib/types";
 
 function parseSources(raw: string | null): SearchSource[] | undefined {
   if (!raw) {
@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
   const limit = Number(searchParams.get("limit") || "20");
   const offset = Number(searchParams.get("offset") || "0");
   const sources = parseSources(searchParams.get("sources"));
+  const preferRaw = searchParams.get("prefer");
+  const scriptPreference: ScriptPreference | undefined =
+    preferRaw === "simplified" || preferRaw === "traditional" ? preferRaw : undefined;
 
   if (!keyword) {
     return NextResponse.json(
@@ -34,7 +37,8 @@ export async function GET(request: NextRequest) {
     keyword,
     limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20,
     offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0,
-    sources
+    sources,
+    scriptPreference
   });
 
   return NextResponse.json(result, {

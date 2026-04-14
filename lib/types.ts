@@ -1,10 +1,13 @@
 export type SearchSource = "bangumi-moe" | "acg-rip" | "dmhy" | "nyaa";
 
+export type ScriptPreference = "simplified" | "traditional";
+
 export interface SearchQuery {
   keyword: string;
   limit?: number;
   offset?: number;
   sources?: SearchSource[];
+  scriptPreference?: ScriptPreference;
 }
 
 export interface MirrorLink {

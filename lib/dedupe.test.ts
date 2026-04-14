@@ -38,6 +38,36 @@ describe("dedupeItems", () => {
     expect(dedupeItems([a, b])).toHaveLength(2);
   });
 
+  it("derives infoHash from magnet URL when provider omits it", () => {
+    const magnet = "magnet:?xt=urn:btih:ABC123DEF&dn=Show";
+    const a = mkItem({ id: "1", title: "Slightly different title A", source: "acg-rip", magnetUrl: magnet });
+    const b = mkItem({ id: "2", title: "Slightly different title B", source: "dmhy", magnetUrl: magnet });
+    const c = mkItem({ id: "3", title: "Slightly different title C", source: "nyaa", infoHash: "abc123def", seeders: 10 });
+    const deduped = dedupeItems([a, b, c]);
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].sources?.sort()).toEqual(["acg-rip", "dmhy", "nyaa"]);
+  });
+
+  it("matches base32 and hex btih encodings as the same hash", () => {
+    // 6YLZJMMOIO7EKWVFNPN4KTKQGTGIDIXJ (base32) == f61794b18e43be455aa56bdbc54d5034cc81a2e9 (hex)
+    const a = mkItem({ id: "1", source: "nyaa", infoHash: "f61794b18e43be455aa56bdbc54d5034cc81a2e9", seeders: 5 });
+    const b = mkItem({
+      id: "2",
+      source: "dmhy",
+      magnetUrl: "magnet:?xt=urn:btih:6YLZJMMOIO7EKWVFNPN4KTKQGTGIDIXJ"
+    });
+    const deduped = dedupeItems([a, b]);
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].sources?.sort()).toEqual(["dmhy", "nyaa"]);
+  });
+
+  it("merges titles that differ only in the romaji/english segment after '/'", () => {
+    const a = mkItem({ id: "1", source: "acg-rip", title: "[Grp] 某番 / English Name - 01 [1080p]" });
+    const b = mkItem({ id: "2", source: "dmhy", title: "[Grp] 某番 / Different Translation - 01 [1080p]" });
+    const deduped = dedupeItems([a, b]);
+    expect(deduped).toHaveLength(1);
+  });
+
   it("picks the newer publishedAt when merging", () => {
     const a = mkItem({ id: "1", infoHash: "x", publishedAt: "2026-04-01T00:00:00Z" });
     const b = mkItem({ id: "2", infoHash: "x", publishedAt: "2026-04-14T00:00:00Z" });
