@@ -1,4 +1,4 @@
-export type SearchSource = "bangumi-moe" | "dht";
+export type SearchSource = "bangumi-moe" | "acg-rip" | "dmhy" | "nyaa";
 
 export interface SearchQuery {
   keyword: string;

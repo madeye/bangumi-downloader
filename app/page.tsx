@@ -5,7 +5,9 @@ import type { SearchResponse, SearchSource } from "@/lib/types";
 
 const sourceOptions: Array<{ label: string; value: SearchSource }> = [
   { label: "bangumi.moe", value: "bangumi-moe" },
-  { label: "DHT 索引", value: "dht" }
+  { label: "acg.rip", value: "acg-rip" },
+  { label: "動漫花園", value: "dmhy" },
+  { label: "nyaa.si", value: "nyaa" }
 ];
 
 const initialQuery = "机动战士 Gundam";
@@ -88,7 +90,7 @@ export default function HomePage() {
           <p className="eyebrow">Bangumi Torrent Finder</p>
           <h1>新番磁力与种子聚合检索</h1>
           <p className="hero-description">
-            聚合 bangumi.moe 与 DHT 索引结果，统一搜索、预览标签，并快速跳转磁力链接或种子文件。
+            聚合 bangumi.moe、acg.rip、動漫花園、nyaa.si 搜索结果，统一搜索、预览标签，并快速跳转磁力链接或种子文件。
           </p>
         </div>
 

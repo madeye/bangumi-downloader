@@ -7,7 +7,7 @@ function parseSources(raw: string | null): SearchSource[] | undefined {
     return undefined;
   }
 
-  const valid: SearchSource[] = ["bangumi-moe", "dht"];
+  const valid: SearchSource[] = ["bangumi-moe", "acg-rip", "dmhy", "nyaa"];
   const values = raw
     .split(",")
     .map((value) => value.trim())
