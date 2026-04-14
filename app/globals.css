@@ -452,3 +452,46 @@ a {
     width: 100%;
   }
 }
+
+/* Indeterminate progress bar fixed at the page top — mirrors the bouncing
+   green indicator Claude Code shows in the terminal during a background
+   refine. Two segments slide back and forth out of phase so the motion
+   reads as continuous. */
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(16, 185, 129, 0.12);
+  overflow: hidden;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.progress-bar::before,
+.progress-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #10b981 50%,
+    transparent 100%
+  );
+  animation: progress-bounce 1.6s ease-in-out infinite;
+}
+
+.progress-bar::after {
+  animation-delay: 0.8s;
+  opacity: 0.6;
+}
+
+@keyframes progress-bounce {
+  0%   { transform: translateX(-50%); }
+  50%  { transform: translateX(250%); }
+  100% { transform: translateX(-50%); }
+}

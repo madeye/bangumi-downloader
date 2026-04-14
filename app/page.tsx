@@ -203,6 +203,7 @@ export default function HomePage() {
 
   return (
     <main className="page-shell">
+      {isRefining ? <div className="progress-bar" role="progressbar" aria-label="智能合并中" /> : null}
       <section className="hero-card">
         <div className="hero-copy">
           <p className="eyebrow">Bangumi Torrent Finder</p>
