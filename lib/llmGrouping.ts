@@ -10,16 +10,13 @@ import type { SearchResultItem } from "@/lib/types";
 // Returns a remap from original normalized series key -> canonical key. Items
 // whose key is not in the map keep their original grouping.
 
-// LLM backend config. LLM_* takes priority; falls back to legacy MINIMAX_*
-// env names so existing deployments keep working. Any Anthropic-compatible
-// endpoint works here — MiniMax (api.minimaxi.com/anthropic) and Kimi
-// (api.kimi.com/coding) are both tested.
-const DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic";
-const DEFAULT_MODEL = "MiniMax-M2.7";
-// MiniMax latency is often 30–60s for these prompts. 5s was far too
-// aggressive and caused every call to silently fall through to an empty
-// remap. 45s lets the first search for a given result set actually wait for
-// the response; the cache below keeps subsequent searches instant.
+// LLM backend config. All three LLM_* env vars are required to enable the
+// refine pass; without them the app falls back to heuristic grouping. Any
+// Anthropic-compatible endpoint works (MiniMax, Kimi, etc.) — the example
+// in .env.example shows the wiring.
+//
+// Typical LLM latency for these prompts is 30–60s, so the timeout has to be
+// generous. The process-wide cache below keeps repeat searches instant.
 const TIMEOUT_MS = 45000;
 
 interface LlmConfig {
@@ -29,13 +26,11 @@ interface LlmConfig {
 }
 
 function llmConfig(): LlmConfig | undefined {
-  const apiKey = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY;
-  if (!apiKey) return undefined;
-  return {
-    apiKey,
-    baseURL: process.env.LLM_BASE_URL || process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL,
-    model: process.env.LLM_MODEL || process.env.MINIMAX_MODEL || DEFAULT_MODEL
-  };
+  const apiKey = process.env.LLM_API_KEY;
+  const baseURL = process.env.LLM_BASE_URL;
+  const model = process.env.LLM_MODEL;
+  if (!apiKey || !baseURL || !model) return undefined;
+  return { apiKey, baseURL, model };
 }
 
 // Process-wide cache: prompts with identical label sets produce identical
