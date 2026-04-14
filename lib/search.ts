@@ -4,8 +4,7 @@ import { DmhyProvider } from "@/lib/providers/dmhy";
 import { NyaaProvider } from "@/lib/providers/nyaa";
 import { dedupeItems } from "@/lib/dedupe";
 import { annotateAndGroup } from "@/lib/grouping";
-import { buildSeriesRemap, rankFansubGroups } from "@/lib/llmGrouping";
-import { parseTitle } from "@/lib/titleParse";
+import { refineWithLlm } from "@/lib/llmGrouping";
 import type { SearchProvider, SearchQuery, SearchResponse, SearchSource } from "@/lib/types";
 
 const providers: SearchProvider[] = [
@@ -38,24 +37,12 @@ export async function searchTorrents(
   const rawItems = results.flatMap((result) => result.items);
   const deduped = dedupeItems(rawItems);
 
-  let remap = new Map<string, string>();
-  let ranking = new Map<string, number>();
-  if (options.useLlm) {
-    const groupNames = Array.from(
-      new Set(
-        deduped
-          .map((it) => parseTitle(it.title).group)
-          .filter((g): g is string => !!g)
-      )
-    );
-    [remap, ranking] = await Promise.all([
-      buildSeriesRemap(deduped),
-      groupNames.length >= 2 ? rankFansubGroups(groupNames) : Promise.resolve(new Map<string, number>())
-    ]);
-  }
+  const refine = options.useLlm
+    ? await refineWithLlm(deduped)
+    : { seriesRemap: new Map<string, string>(), groupRanking: new Map<string, number>() };
   const { groups, ungrouped } = annotateAndGroup(deduped, {
-    seriesRemap: remap,
-    groupRanking: ranking,
+    seriesRemap: refine.seriesRemap,
+    groupRanking: refine.groupRanking,
     scriptPreference: query.scriptPreference
   });
   const warnings = results.flatMap((result) => result.warnings ?? []);
