@@ -30,6 +30,24 @@ describe("parseTitle", () => {
     expect(p.season).toBe(2);
   });
 
+  it("parses version from NNvM suffix", () => {
+    const p = parseTitle("[桜都字幕组] Some Show [01v2][1080p]");
+    expect(p.episode).toBe(1);
+    expect(p.version).toBe(2);
+  });
+
+  it("defaults version to undefined when absent", () => {
+    const p = parseTitle("[桜都字幕组] Some Show [01][1080p]");
+    expect(p.episode).toBe(1);
+    expect(p.version).toBeUndefined();
+  });
+
+  it("parses version in dash-separated episode form", () => {
+    const p = parseTitle("[Nekomoe kissaten] Some Title - 03v2 [1080p][WEBRip]");
+    expect(p.episode).toBe(3);
+    expect(p.version).toBe(2);
+  });
+
   it("parses CJK episode marker", () => {
     const p = parseTitle("[组] 某番 第12话 [1080p]");
     expect(p.episode).toBe(12);
