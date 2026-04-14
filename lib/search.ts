@@ -24,23 +24,35 @@ function selectProviders(sources?: SearchSource[]): SearchProvider[] {
   return providers.filter((provider) => set.has(provider.source));
 }
 
-export async function searchTorrents(query: SearchQuery): Promise<SearchResponse> {
+export interface SearchOptions {
+  useLlm?: boolean;
+}
+
+export async function searchTorrents(
+  query: SearchQuery,
+  options: SearchOptions = { useLlm: true }
+): Promise<SearchResponse> {
   const enabledProviders = selectProviders(query.sources);
   const results = await Promise.all(enabledProviders.map((provider) => provider.search(query)));
 
   const rawItems = results.flatMap((result) => result.items);
   const deduped = dedupeItems(rawItems);
-  const groupNames = Array.from(
-    new Set(
-      deduped
-        .map((it) => parseTitle(it.title).group)
-        .filter((g): g is string => !!g)
-    )
-  );
-  const [remap, ranking] = await Promise.all([
-    buildSeriesRemap(deduped),
-    groupNames.length >= 2 ? rankFansubGroups(groupNames) : Promise.resolve(new Map<string, number>())
-  ]);
+
+  let remap = new Map<string, string>();
+  let ranking = new Map<string, number>();
+  if (options.useLlm) {
+    const groupNames = Array.from(
+      new Set(
+        deduped
+          .map((it) => parseTitle(it.title).group)
+          .filter((g): g is string => !!g)
+      )
+    );
+    [remap, ranking] = await Promise.all([
+      buildSeriesRemap(deduped),
+      groupNames.length >= 2 ? rankFansubGroups(groupNames) : Promise.resolve(new Map<string, number>())
+    ]);
+  }
   const { groups, ungrouped } = annotateAndGroup(deduped, {
     seriesRemap: remap,
     groupRanking: ranking,
