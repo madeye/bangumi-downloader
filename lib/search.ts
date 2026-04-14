@@ -15,10 +15,20 @@ function cacheTtlSeconds(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CACHE_TTL_SECONDS;
 }
 
-function buildCacheKey(query: SearchQuery, useLlm: boolean): string {
-  // Normalize: lowercase keyword, sort sources, keep explicit undefineds.
+function normalizeKeyword(raw: string): string {
+  // NFKC folds full-width ASCII/punctuation into half-width so e.g. "ＧＱｕｕｘ"
+  // and "GQuux" hash to the same key. Collapsing internal whitespace catches
+  // double-spaces and stray tabs that users routinely paste in.
+  return raw
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function buildCacheKey(query: SearchQuery, useLlm: boolean): string {
   return JSON.stringify({
-    k: query.keyword.trim().toLowerCase(),
+    k: normalizeKeyword(query.keyword),
     s: [...(query.sources ?? [])].sort(),
     p: query.scriptPreference ?? null,
     l: query.limit ?? null,
