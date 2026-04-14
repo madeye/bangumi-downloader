@@ -1,15 +1,54 @@
+import { toSimplified } from "@/lib/script";
 import type { MirrorLink, SearchResultItem, SearchSource } from "@/lib/types";
 
 // Dedup key preference: infoHash (most reliable — collides only on true
 // duplicates); falling back to a normalized title (lowercased, stripped of
 // punctuation and whitespace) so that the same release posted on two RSS
-// feeds without an info hash still collapses.
-function dedupKey(item: SearchResultItem): string {
-  if (item.infoHash) return `hash:${item.infoHash.toLowerCase()}`;
-  const norm = item.title
+// feeds without an info hash still collapses. Providers that don't expose
+// infoHash directly may still embed it in the magnet URL, so we extract that.
+function itemHash(item: SearchResultItem): string | undefined {
+  return normalizeHash(item.infoHash || infoHashFromMagnet(item.magnetUrl));
+}
+
+// Title fallback: fold S→T, keep only the first '/'-separated segment (zh
+// title; sources disagree on the romaji/en translation appended after it),
+// then strip punctuation/whitespace.
+function titleKey(title: string): string {
+  const zhPart = title.split("/")[0];
+  return toSimplified(zhPart)
     .toLowerCase()
     .replace(/[\p{P}\p{S}\s]+/gu, "");
-  return `title:${norm}`;
+}
+
+function infoHashFromMagnet(magnet?: string): string | undefined {
+  if (!magnet) return undefined;
+  const match = magnet.match(/xt=urn:btih:([a-zA-Z0-9]+)/);
+  return match?.[1];
+}
+
+// Normalize btih to lowercase hex. dmhy emits base32-encoded hashes (32 chars)
+// while nyaa emits hex (40 chars) — same underlying SHA-1, different encoding.
+function normalizeHash(hash?: string): string | undefined {
+  if (!hash) return undefined;
+  const h = hash.trim();
+  if (/^[a-fA-F0-9]{40}$/.test(h)) return h.toLowerCase();
+  if (/^[A-Z2-7]{32}$/i.test(h)) return base32ToHex(h.toUpperCase());
+  return h.toLowerCase();
+}
+
+function base32ToHex(s: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const c of s) {
+    const v = alphabet.indexOf(c);
+    if (v < 0) return s.toLowerCase();
+    bits += v.toString(2).padStart(5, "0");
+  }
+  let hex = "";
+  for (let i = 0; i + 4 <= bits.length; i += 4) {
+    hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+  }
+  return hex;
 }
 
 const SOURCE_PRIORITY: SearchSource[] = ["nyaa", "bangumi-moe", "dmhy", "acg-rip"];
@@ -89,9 +128,21 @@ function maxIsoDate(a?: string, b?: string): string | undefined {
 }
 
 export function dedupeItems(items: SearchResultItem[]): SearchResultItem[] {
+  // Pre-pass: build an alias from normalized title → hash, so items that lack
+  // a hash (acg-rip often doesn't expose magnets) can still merge into the
+  // hashed bucket for the same release.
+  const titleToHash = new Map<string, string>();
+  for (const item of items) {
+    const hash = itemHash(item);
+    if (!hash) continue;
+    const tk = titleKey(item.title);
+    if (tk && !titleToHash.has(tk)) titleToHash.set(tk, hash);
+  }
+
   const buckets = new Map<string, SearchResultItem>();
   for (const item of items) {
-    const key = dedupKey(item);
+    const hash = itemHash(item) ?? titleToHash.get(titleKey(item.title));
+    const key = hash ? `hash:${hash}` : `title:${titleKey(item.title)}`;
     const existing = buckets.get(key);
     buckets.set(key, existing ? mergePreferRicher(existing, item) : withDefaults(item));
   }
@@ -101,6 +152,7 @@ export function dedupeItems(items: SearchResultItem[]): SearchResultItem[] {
 function withDefaults(item: SearchResultItem): SearchResultItem {
   return {
     ...item,
+    infoHash: normalizeHash(item.infoHash || infoHashFromMagnet(item.magnetUrl)),
     sources: item.sources ?? [item.source],
     mirrors: item.mirrors ?? [
       {
