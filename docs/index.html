@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bangumi Torrent Finder · 聚合番剧磁力与种子检索</title>
+    <meta
+      name="description"
+      content="聚合 bangumi.moe、acg.rip、動漫花園、nyaa.si 的番剧种子检索工具，自动去重、分组、批量打包下载。"
+    />
+    <meta property="og:title" content="Bangumi Torrent Finder" />
+    <meta
+      property="og:description"
+      content="聚合 bangumi.moe、acg.rip、動漫花園、nyaa.si 的番剧种子检索工具。"
+    />
+    <style>
+      :root {
+        --bg: #0b0d12;
+        --bg-elev: #141822;
+        --border: #242a38;
+        --text: #e6e9f2;
+        --muted: #8a93a8;
+        --accent: #7aa2ff;
+        --accent-strong: #5b86ff;
+        --chip-bg: #1a1f2c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+        line-height: 1.6;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        color: var(--accent-strong);
+      }
+      .shell {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 64px 24px 96px;
+      }
+      header.hero {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 48px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: linear-gradient(160deg, #161b28, #0e121b);
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(28px, 4vw, 40px);
+        margin: 0;
+        line-height: 1.25;
+      }
+      .hero p.lede {
+        color: var(--muted);
+        max-width: 60ch;
+        margin: 0;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        padding: 10px 18px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--bg-elev);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .btn.primary {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
+        color: #0b0d12;
+      }
+      .btn.primary:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .chip {
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--chip-bg);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      section {
+        margin-top: 56px;
+      }
+      h2 {
+        font-size: 20px;
+        margin: 0 0 16px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--bg-elev);
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      pre {
+        background: #0f131c;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px 20px;
+        overflow-x: auto;
+        color: #d5dcec;
+        font-size: 13px;
+      }
+      code {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+          monospace;
+      }
+      ul.plain {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 10px;
+      }
+      ul.plain li {
+        padding: 12px 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-elev);
+        color: var(--muted);
+        font-size: 14px;
+      }
+      ul.plain li strong {
+        color: var(--text);
+        margin-right: 8px;
+      }
+      footer {
+        margin-top: 72px;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <p class="eyebrow">Bangumi Torrent Finder</p>
+        <h1>一次搜索，聚合全部番剧磁力来源。</h1>
+        <p class="lede">
+          聚合
+          <strong>bangumi.moe</strong>、<strong>acg.rip</strong>、<strong>動漫花園</strong>、<strong>nyaa.si</strong>
+          的搜索结果，自动去重并按番剧分组，支持批量复制磁力与打包下载
+          <code>.torrent</code> 文件。
+        </p>
+        <div class="chips">
+          <span class="chip">Next.js App Router</span>
+          <span class="chip">TypeScript</span>
+          <span class="chip">LLM 精炼分组</span>
+          <span class="chip">SQLite 缓存</span>
+        </div>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/madeye/bangumi-downloader"
+            >查看源码</a
+          >
+          <a
+            class="btn"
+            href="https://github.com/madeye/bangumi-downloader#本地启动"
+            >本地启动指南</a
+          >
+        </div>
+      </header>
+
+      <section>
+        <h2>它能做什么</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>多源并行检索</h3>
+            <p>
+              四个上游 provider 并发调用，互不阻塞。单个源失败只会作为 warning
+              返回，不影响整体响应。
+            </p>
+          </div>
+          <div class="card">
+            <h3>智能分组</h3>
+            <p>
+              先跑启发式标题解析得出快速结果，随后后台用 LLM
+              精炼跨语言（简繁日罗）同作品聚合，首屏不阻塞。
+            </p>
+          </div>
+          <div class="card">
+            <h3>批量打包下载</h3>
+            <p>
+              选中若干条结果后，服务端代理拉取
+              <code>.torrent</code> 并即时打包为一个 zip 返回，绕过 CORS。
+            </p>
+          </div>
+          <div class="card">
+            <h3>SQLite 搜索缓存</h3>
+            <p>
+              相似查询直接命中缓存，TTL 可配。减少上游压力与 LLM token 消耗。
+            </p>
+          </div>
+          <div class="card">
+            <h3>token 不落前端</h3>
+            <p>
+              所有上游 URL / API key 仅在服务端使用，前端只看到归一化后的字段。
+            </p>
+          </div>
+          <div class="card">
+            <h3>易扩展</h3>
+            <p>
+              新增 provider 只需实现 <code>SearchProvider</code> 接口并在
+              <code>lib/search.ts</code> 中注册。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>快速启动</h2>
+        <pre><code>git clone https://github.com/madeye/bangumi-downloader
+cd bangumi-downloader
+cp .env.example .env.local
+npm install
+npm run dev   # http://localhost:3000</code></pre>
+      </section>
+
+      <section>
+        <h2>常用命令</h2>
+        <ul class="plain">
+          <li><strong>npm run dev</strong>启动 Next.js 开发服务</li>
+          <li><strong>npm run build / start</strong>生产构建与启动</li>
+          <li><strong>npm run lint</strong>ESLint（flat config）</li>
+          <li><strong>npm run typecheck</strong>tsc --noEmit</li>
+          <li><strong>npm test</strong>Vitest 全量测试</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>不变量</h2>
+        <ul class="plain">
+          <li>
+            <strong>服务端收口</strong>所有上游 token / URL 只在服务端使用，不要从客户端直接
+            import provider 模块。
+          </li>
+          <li>
+            <strong>容错优先</strong>provider 失败通过
+            <code>warnings</code> 上报，不要让一个坏源拖垮整个聚合响应。
+          </li>
+          <li>
+            <strong>字段契约</strong>provider 输出必须符合
+            <code>SearchResultItem</code>，否则分组与排序都会失效。
+          </li>
+        </ul>
+      </section>
+
+      <footer>
+        MIT · <a href="https://github.com/madeye/bangumi-downloader">GitHub</a>
+      </footer>
+    </div>
+  </body>
+</html>
