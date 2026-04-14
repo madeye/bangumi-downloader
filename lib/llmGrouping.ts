@@ -10,6 +10,10 @@ import type { SearchResultItem } from "@/lib/types";
 // Returns a remap from original normalized series key -> canonical key. Items
 // whose key is not in the map keep their original grouping.
 
+// LLM backend config. LLM_* takes priority; falls back to legacy MINIMAX_*
+// env names so existing deployments keep working. Any Anthropic-compatible
+// endpoint works here — MiniMax (api.minimaxi.com/anthropic) and Kimi
+// (api.kimi.com/coding) are both tested.
 const DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic";
 const DEFAULT_MODEL = "MiniMax-M2.7";
 // MiniMax latency is often 30–60s for these prompts. 5s was far too
@@ -17,6 +21,22 @@ const DEFAULT_MODEL = "MiniMax-M2.7";
 // remap. 45s lets the first search for a given result set actually wait for
 // the response; the cache below keeps subsequent searches instant.
 const TIMEOUT_MS = 45000;
+
+interface LlmConfig {
+  apiKey: string;
+  baseURL: string;
+  model: string;
+}
+
+function llmConfig(): LlmConfig | undefined {
+  const apiKey = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY;
+  if (!apiKey) return undefined;
+  return {
+    apiKey,
+    baseURL: process.env.LLM_BASE_URL || process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL,
+    model: process.env.LLM_MODEL || process.env.MINIMAX_MODEL || DEFAULT_MODEL
+  };
+}
 
 // Process-wide cache: prompts with identical label sets produce identical
 // answers, so we cache on a stable hash of the sorted inputs. Capped to
@@ -65,8 +85,8 @@ interface RankingResponse {
 // downstream code treats as "all groups tie at 0" — leaving seeders as the
 // only tie-breaker.
 export async function rankFansubGroups(groups: string[]): Promise<GroupRanking> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) return new Map();
+  const cfg = llmConfig();
+  if (!cfg) return new Map();
   const distinct = Array.from(new Set(groups.filter(Boolean)));
   if (distinct.length < 2) return new Map();
 
@@ -75,14 +95,11 @@ export async function rankFansubGroups(groups: string[]): Promise<GroupRanking> 
   if (cached) return cached;
 
   try {
-    const client = new Anthropic({
-      apiKey,
-      baseURL: process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL
-    });
+    const client = new Anthropic({ apiKey: cfg.apiKey, baseURL: cfg.baseURL });
 
     const response = await Promise.race([
       client.messages.create({
-        model: process.env.MINIMAX_MODEL || DEFAULT_MODEL,
+        model: cfg.model,
         max_tokens: 1024,
         messages: [
           {
@@ -144,8 +161,8 @@ function stripFences(text: string): string {
 }
 
 export async function buildSeriesRemap(items: SearchResultItem[]): Promise<SeriesRemap> {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  if (!apiKey) return new Map();
+  const cfg = llmConfig();
+  if (!cfg) return new Map();
 
   // Collect distinct (key, label) — LLM gets human-readable labels, we use
   // labels to reconstruct keys after clustering.
@@ -164,14 +181,11 @@ export async function buildSeriesRemap(items: SearchResultItem[]): Promise<Serie
   if (cached) return cached;
 
   try {
-    const client = new Anthropic({
-      apiKey,
-      baseURL: process.env.MINIMAX_BASE_URL || DEFAULT_BASE_URL
-    });
+    const client = new Anthropic({ apiKey: cfg.apiKey, baseURL: cfg.baseURL });
 
     const response = await Promise.race([
       client.messages.create({
-        model: process.env.MINIMAX_MODEL || DEFAULT_MODEL,
+        model: cfg.model,
         max_tokens: 2048,
         messages: [
           {
