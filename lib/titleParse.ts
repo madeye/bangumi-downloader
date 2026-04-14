@@ -9,6 +9,7 @@ export interface ParsedTitle {
   seriesKey?: string; // normalized lowercase key for grouping
   season?: number;
   episode?: number;
+  version?: number; // release version (e.g. "01v2" → 2). Defaults to 1.
   resolution?: string;
   group?: string;
   codec?: string;
@@ -24,7 +25,12 @@ const BRACKETS = [
 const RESOLUTION_RE = /(2160p|1080p|720p|480p|4k)/i;
 const CODEC_RE = /\b(hevc|x265|x264|h\.?264|h\.?265|av1|10-?bit|8-?bit|aac|flac)\b/i;
 const SEASON_RE = /(?:S(\d{1,2})\b|Season\s*(\d{1,2})|第([一二三四五六七八九十\d]+)[季期])/i;
-const EPISODE_RE = /(?:-\s*(\d{1,3})(?:v\d)?\b|\[(\d{1,3})(?:v\d)?\]|\bEP?(\d{1,3})\b|第(\d{1,3})[话集話])/i;
+// Capture groups:
+//   1: ep after "- ", 2: version after "- NNv?"
+//   3: ep inside brackets, 4: version inside brackets
+//   5: ep after "E"/"EP", 6: version after "E"/"EP"
+//   7: ep after 第...话/集/話 (no version variant)
+const EPISODE_RE = /(?:-\s*(\d{1,3})(?:v(\d))?\b|\[(\d{1,3})(?:v(\d))?\]|\bEP?(\d{1,3})(?:v(\d))?\b|第(\d{1,3})[话集話])/i;
 
 export function parseTitle(raw: string): ParsedTitle {
   if (!raw) return {};
@@ -48,9 +54,14 @@ export function parseTitle(raw: string): ParsedTitle {
 
   const epMatch = stripped.match(EPISODE_RE);
   if (epMatch) {
-    const raw = epMatch[1] || epMatch[2] || epMatch[3] || epMatch[4];
+    const raw = epMatch[1] || epMatch[3] || epMatch[5] || epMatch[7];
     const n = Number(raw);
     if (Number.isFinite(n)) out.episode = n;
+    const ver = epMatch[2] || epMatch[4] || epMatch[6];
+    if (ver) {
+      const v = Number(ver);
+      if (Number.isFinite(v)) out.version = v;
+    }
   }
 
   const series = extractSeries(stripped);
