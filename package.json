@@ -12,12 +12,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
+    "better-sqlite3": "^12.9.0",
     "next": "latest",
     "opencc-js": "^1.0.5",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "latest",
     "@types/opencc-js": "^1.0.3",
     "@types/react": "latest",

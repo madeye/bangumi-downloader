@@ -2,10 +2,30 @@ import { AcgRipProvider } from "@/lib/providers/acgrip";
 import { BangumiMoeProvider } from "@/lib/providers/bangumi";
 import { DmhyProvider } from "@/lib/providers/dmhy";
 import { NyaaProvider } from "@/lib/providers/nyaa";
+import { cacheGet, cacheSet } from "@/lib/cache";
 import { dedupeItems } from "@/lib/dedupe";
 import { annotateAndGroup } from "@/lib/grouping";
 import { refineWithLlm } from "@/lib/llmGrouping";
 import type { SearchProvider, SearchQuery, SearchResponse, SearchSource } from "@/lib/types";
+
+const DEFAULT_CACHE_TTL_SECONDS = 900; // 15 minutes
+
+function cacheTtlSeconds(): number {
+  const raw = Number(process.env.SEARCH_CACHE_TTL_SECONDS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CACHE_TTL_SECONDS;
+}
+
+function buildCacheKey(query: SearchQuery, useLlm: boolean): string {
+  // Normalize: lowercase keyword, sort sources, keep explicit undefineds.
+  return JSON.stringify({
+    k: query.keyword.trim().toLowerCase(),
+    s: [...(query.sources ?? [])].sort(),
+    p: query.scriptPreference ?? null,
+    l: query.limit ?? null,
+    o: query.offset ?? null,
+    llm: useLlm
+  });
+}
 
 const providers: SearchProvider[] = [
   new BangumiMoeProvider(),
@@ -31,13 +51,18 @@ export async function searchTorrents(
   query: SearchQuery,
   options: SearchOptions = { useLlm: true }
 ): Promise<SearchResponse> {
+  const useLlm = !!options.useLlm;
+  const cacheKey = buildCacheKey(query, useLlm);
+  const cached = cacheGet<SearchResponse>(cacheKey);
+  if (cached) return cached;
+
   const enabledProviders = selectProviders(query.sources);
   const results = await Promise.all(enabledProviders.map((provider) => provider.search(query)));
 
   const rawItems = results.flatMap((result) => result.items);
   const deduped = dedupeItems(rawItems);
 
-  const refine = options.useLlm
+  const refine = useLlm
     ? await refineWithLlm(deduped)
     : { seriesRemap: new Map<string, string>(), groupRanking: new Map<string, number>() };
   const { groups, ungrouped } = annotateAndGroup(deduped, {
@@ -47,11 +72,13 @@ export async function searchTorrents(
   });
   const warnings = results.flatMap((result) => result.warnings ?? []);
 
-  return {
+  const response: SearchResponse = {
     query,
     total: deduped.length,
     warnings,
     groups,
     ungrouped
   };
+  cacheSet(cacheKey, response, cacheTtlSeconds());
+  return response;
 }
