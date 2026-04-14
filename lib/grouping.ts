@@ -81,6 +81,7 @@ function annotateItem(item: SearchResultItem): SearchResultItem {
     series: parsed.series ?? item.series,
     season: parsed.season ?? item.season,
     episode: parsed.episode ?? item.episode,
+    episodeRange: parsed.episodeRange ?? item.episodeRange,
     version: parsed.version ?? item.version,
     resolution: parsed.resolution ?? item.resolution,
     group: parsed.group ?? item.group
@@ -117,12 +118,25 @@ function pruneToBestPerEpisode(
 
   for (const item of items) {
     const parsed = parseTitle(item.title);
-    if (!parsed.seriesKey || item.episode === undefined) {
+    if (!parsed.seriesKey) {
       passthrough.push(item);
       continue;
     }
     const canonical = opts.seriesRemap?.get(parsed.seriesKey) ?? parsed.seriesKey;
-    const key = `${canonical}::s${item.season ?? 0}::e${item.episode}`;
+    const season = item.season ?? 0;
+    let slot: string;
+    if (item.episode !== undefined) {
+      slot = `e${item.episode}`;
+    } else if (item.episodeRange) {
+      // Batch releases dedupe per identical range. A "01-12" batch in simp and
+      // trad scripts should collapse to one entry; a "01-06" half-batch
+      // should stay separate from a "01-12" full batch.
+      slot = `r${item.episodeRange[0]}-${item.episodeRange[1]}`;
+    } else {
+      passthrough.push(item);
+      continue;
+    }
+    const key = `${canonical}::s${season}::${slot}`;
     const existing = best.get(key);
     if (!existing || compareCandidates(item, existing, opts) < 0) {
       best.set(key, item);
