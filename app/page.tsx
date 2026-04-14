@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import type {
   ResultGroup,
+  ScriptPreference,
   SearchResponse,
   SearchResultItem,
   SearchSource
@@ -42,6 +43,7 @@ export default function HomePage() {
   const [selectedSources, setSelectedSources] = useState<SearchSource[]>(
     sourceOptions.map((option) => option.value)
   );
+  const [scriptPref, setScriptPref] = useState<ScriptPreference>("simplified");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -54,8 +56,12 @@ export default function HomePage() {
     return [...data.groups.flatMap((g) => g.items), ...data.ungrouped];
   }, [data]);
 
-  async function runSearch(nextKeyword: string, sources: SearchSource[]) {
-    const params = new URLSearchParams({ q: nextKeyword, limit: "48" });
+  async function runSearch(
+    nextKeyword: string,
+    sources: SearchSource[],
+    prefer: ScriptPreference
+  ) {
+    const params = new URLSearchParams({ q: nextKeyword, limit: "48", prefer });
     if (sources.length) params.set("sources", sources.join(","));
 
     const response = await fetch(`/api/search?${params.toString()}`, { cache: "no-store" });
@@ -73,7 +79,7 @@ export default function HomePage() {
 
   useEffect(() => {
     startTransition(() => {
-      runSearch(initialQuery, sourceOptions.map((o) => o.value)).catch((cause: unknown) => {
+      runSearch(initialQuery, sourceOptions.map((o) => o.value), "simplified").catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : "搜索失败");
       });
     });
@@ -82,7 +88,7 @@ export default function HomePage() {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startTransition(() => {
-      runSearch(keyword, selectedSources).catch((cause: unknown) => {
+      runSearch(keyword, selectedSources, scriptPref).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : "搜索失败");
       });
     });
@@ -188,6 +194,23 @@ export default function HomePage() {
             <button type="submit" disabled={isPending || !keyword.trim()}>
               {isPending ? "搜索中..." : "开始搜索"}
             </button>
+          </div>
+
+          <div className="sources" role="radiogroup" aria-label="字体偏好">
+            {(["simplified", "traditional"] as const).map((value) => {
+              const active = scriptPref === value;
+              return (
+                <label key={value} className={active ? "chip active" : "chip"}>
+                  <input
+                    type="radio"
+                    name="scriptPref"
+                    checked={active}
+                    onChange={() => setScriptPref(value)}
+                  />
+                  <span>{value === "simplified" ? "优先简体" : "優先繁體"}</span>
+                </label>
+              );
+            })}
           </div>
 
           <div className="sources">

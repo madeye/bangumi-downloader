@@ -1,3 +1,5 @@
+import { toSimplified } from "@/lib/script";
+
 // Heuristic parser for anime release titles. Release naming is not
 // standardized, so this is best-effort: it extracts what it can recognize and
 // leaves the rest undefined. Callers should treat every field as optional.
@@ -106,7 +108,9 @@ function extractSeries(stripped: string): string | undefined {
 }
 
 export function normalizeSeriesKey(series: string): string {
-  return series
+  // Fold traditional → simplified so S/T variants of the same title collapse
+  // into a single group without needing the LLM.
+  return toSimplified(series)
     .toLowerCase()
     .replace(/[\p{P}\p{S}]/gu, " ") // strip punctuation/symbols
     .replace(/\s+/g, " ")
