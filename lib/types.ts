@@ -7,11 +7,20 @@ export interface SearchQuery {
   sources?: SearchSource[];
 }
 
+export interface MirrorLink {
+  source: SearchSource;
+  magnetUrl?: string;
+  torrentUrl?: string;
+  detailUrl?: string;
+}
+
 export interface SearchResultItem {
   id: string;
   title: string;
   subtitle?: string;
-  source: SearchSource;
+  source: SearchSource; // primary source (the one whose metadata we prefer)
+  sources?: SearchSource[]; // all sources the item was observed on (after dedupe)
+  mirrors?: MirrorLink[]; // per-source magnet/torrent/detail links
   publishedAt?: string;
   size?: string;
   seeders?: number;
@@ -21,13 +30,27 @@ export interface SearchResultItem {
   torrentUrl?: string;
   detailUrl?: string;
   tags: string[];
+  // Populated by the grouping pipeline; providers don't need to set these.
+  series?: string;
+  season?: number;
+  episode?: number;
+  resolution?: string;
+  group?: string;
+}
+
+export interface ResultGroup {
+  key: string; // stable identifier for UI (normalized series + season)
+  series: string;
+  season?: number;
+  items: SearchResultItem[];
 }
 
 export interface SearchResponse {
   query: SearchQuery;
-  total: number;
+  total: number; // count of deduped items
   warnings: string[];
-  items: SearchResultItem[];
+  groups: ResultGroup[];
+  ungrouped: SearchResultItem[];
 }
 
 export interface ProviderResult {

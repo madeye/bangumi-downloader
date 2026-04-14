@@ -2,6 +2,8 @@ import { AcgRipProvider } from "@/lib/providers/acgrip";
 import { BangumiMoeProvider } from "@/lib/providers/bangumi";
 import { DmhyProvider } from "@/lib/providers/dmhy";
 import { NyaaProvider } from "@/lib/providers/nyaa";
+import { dedupeItems } from "@/lib/dedupe";
+import { annotateAndGroup } from "@/lib/grouping";
 import type { SearchProvider, SearchQuery, SearchResponse, SearchSource } from "@/lib/types";
 
 const providers: SearchProvider[] = [
@@ -24,20 +26,16 @@ export async function searchTorrents(query: SearchQuery): Promise<SearchResponse
   const enabledProviders = selectProviders(query.sources);
   const results = await Promise.all(enabledProviders.map((provider) => provider.search(query)));
 
-  const items = results
-    .flatMap((result) => result.items)
-    .sort((left, right) => {
-      const rightTime = right.publishedAt ? new Date(right.publishedAt).getTime() : 0;
-      const leftTime = left.publishedAt ? new Date(left.publishedAt).getTime() : 0;
-      return rightTime - leftTime;
-    });
-
+  const rawItems = results.flatMap((result) => result.items);
+  const deduped = dedupeItems(rawItems);
+  const { groups, ungrouped } = annotateAndGroup(deduped);
   const warnings = results.flatMap((result) => result.warnings ?? []);
 
   return {
     query,
-    total: items.length,
+    total: deduped.length,
     warnings,
-    items
+    groups,
+    ungrouped
   };
 }
