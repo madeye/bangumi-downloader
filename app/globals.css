@@ -42,6 +42,8 @@ a {
   max-width: 1280px;
   margin: 0 auto;
   padding: 56px 20px 96px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
 }
 
 .hero-card,
@@ -110,6 +112,7 @@ a {
   border: 1px solid rgba(63, 48, 28, 0.16);
   background: rgba(255, 255, 255, 0.92);
   font: inherit;
+  font-size: 16px;
 }
 
 .search-row button {
@@ -432,24 +435,154 @@ a {
 
 @media (max-width: 640px) {
   .page-shell {
-    padding-inline: 14px;
+    padding: 20px 14px 120px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
 
-  .hero-card,
-  .search-panel {
+  .hero-card {
     padding: 18px;
+    border-radius: 22px;
+    gap: 16px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
+    letter-spacing: -0.03em;
+  }
+
+  .hero-description {
+    font-size: 0.94rem;
+    line-height: 1.55;
+    margin-top: 12px;
+  }
+
+  .eyebrow {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    margin-bottom: 8px;
+  }
+
+  .search-panel {
+    padding: 16px;
   }
 
   .search-row {
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .search-row button {
+    padding: 14px 20px;
+    min-height: 48px;
+  }
+
+  .sources {
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .chip {
+    padding: 9px 12px;
+    font-size: 0.88rem;
+  }
+
+  .results-header {
+    margin: 20px 2px 12px;
+  }
+
+  .results-header h2 {
+    font-size: 1.2rem;
+  }
+
+  .warning-box {
+    max-width: 100%;
+  }
+
+  .batch-bar {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom, 0);
+    z-index: 40;
+    margin: 0 -14px 14px;
+    border-radius: 18px 18px 0 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 24px rgba(85, 56, 21, 0.14);
+  }
+
+  .batch-bar button {
+    flex: 1 1 calc(50% - 10px);
+    padding: 10px 12px;
+    min-height: 40px;
+    font-size: 0.88rem;
+  }
+
+  .batch-status {
+    flex-basis: 100%;
+    margin-left: 0;
+    text-align: center;
+    font-size: 0.82rem;
+  }
+
+  .group-head {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .group-title {
+    font-size: 0.98rem;
+  }
+
+  .group-select {
+    font-size: 0.8rem;
+    margin-left: auto;
   }
 
   .row {
     flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .row-select {
+    padding-top: 2px;
+  }
+
+  .row-select input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .row-title {
+    font-size: 0.95rem;
+  }
+
+  .row-meta {
+    gap: 5px;
+  }
+
+  .row-meta .meta-pill,
+  .row-meta .source-badge,
+  .row-meta .episode-badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
   }
 
   .row-actions {
     width: 100%;
+    gap: 8px;
+  }
+
+  .row-actions a {
+    flex: 1;
+    text-align: center;
+    padding: 10px 12px;
+    font-size: 0.88rem;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
