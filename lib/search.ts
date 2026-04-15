@@ -62,16 +62,14 @@ export async function searchTorrents(
   options: SearchOptions = { useLlm: true }
 ): Promise<SearchResponse> {
   const useLlm = !!options.useLlm;
-  const cacheKey = buildCacheKey(query, useLlm);
-  const cached = cacheGet<SearchResponse>(cacheKey);
-  if (cached) return cached;
-
-  // On the fast path, promote a cached refined response if we already have
-  // one — the client can then skip the follow-up refine fetch entirely. Falls
-  // through to a fresh fast fetch if there's no refined entry yet.
+  // Always prefer a cached refined response — it's strictly better than the
+  // fast variant, so the fast path promotes it and the client can skip its
+  // follow-up refine fetch.
+  const refinedCached = cacheGet<SearchResponse>(buildCacheKey(query, true));
+  if (refinedCached) return refinedCached;
   if (!useLlm) {
-    const refinedCached = cacheGet<SearchResponse>(buildCacheKey(query, true));
-    if (refinedCached) return refinedCached;
+    const fastCached = cacheGet<SearchResponse>(buildCacheKey(query, false));
+    if (fastCached) return fastCached;
   }
 
   const enabledProviders = selectProviders(query.sources);

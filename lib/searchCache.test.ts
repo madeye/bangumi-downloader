@@ -93,23 +93,82 @@ describe("cache hit rate for similar queries", () => {
   });
 });
 
-describe("fast path promotes a cached refined response", () => {
-  it("returns the refined response (refined=true) when useLlm=false and a refined entry exists", async () => {
+function mkResponse(query: SearchQuery, refined: boolean, total: number): SearchResponse {
+  return {
+    query,
+    total,
+    warnings: [],
+    groups: [{ key: refined ? "refined" : "fast", series: "S", items: [] }],
+    ungrouped: [],
+    refined
+  };
+}
+
+describe("searchTorrents cache resolution", () => {
+  it("promotes a cached refined response on the fast path (useLlm=false)", async () => {
     const query: SearchQuery = { keyword: "promote-me" };
-    const refined: SearchResponse = {
-      query,
-      total: 3,
-      warnings: [],
-      groups: [{ key: "g1", series: "Promote Me", items: [] }],
-      ungrouped: [],
-      refined: true
-    };
-    cacheSet(buildCacheKey(query, true), refined, 60);
+    cacheSet(buildCacheKey(query, true), mkResponse(query, true, 3), 60);
 
     const result = await searchTorrents(query, { useLlm: false });
 
     expect(result.refined).toBe(true);
     expect(result.total).toBe(3);
-    expect(result.groups[0]?.key).toBe("g1");
+    expect(result.groups[0]?.key).toBe("refined");
+  });
+
+  it("returns a cached refined response directly when useLlm=true", async () => {
+    const query: SearchQuery = { keyword: "direct-refined" };
+    cacheSet(buildCacheKey(query, true), mkResponse(query, true, 7), 60);
+
+    const result = await searchTorrents(query, { useLlm: true });
+
+    expect(result.refined).toBe(true);
+    expect(result.total).toBe(7);
+  });
+
+  it("falls back to the fast cache when no refined entry exists (useLlm=false)", async () => {
+    const query: SearchQuery = { keyword: "only-fast" };
+    cacheSet(buildCacheKey(query, false), mkResponse(query, false, 2), 60);
+
+    const result = await searchTorrents(query, { useLlm: false });
+
+    expect(result.refined).toBe(false);
+    expect(result.total).toBe(2);
+    expect(result.groups[0]?.key).toBe("fast");
+  });
+
+  it("prefers the refined cache over the fast cache when both exist", async () => {
+    const query: SearchQuery = { keyword: "both-cached" };
+    cacheSet(buildCacheKey(query, false), mkResponse(query, false, 2), 60);
+    cacheSet(buildCacheKey(query, true), mkResponse(query, true, 5), 60);
+
+    const result = await searchTorrents(query, { useLlm: false });
+
+    expect(result.refined).toBe(true);
+    expect(result.total).toBe(5);
+  });
+
+  it("does not cross-promote across different script preferences", async () => {
+    const simplified: SearchQuery = { keyword: "x", scriptPreference: "simplified" };
+    const traditional: SearchQuery = { keyword: "x", scriptPreference: "traditional" };
+    cacheSet(buildCacheKey(simplified, true), mkResponse(simplified, true, 99), 60);
+
+    const hit = cacheGet<SearchResponse>(buildCacheKey(traditional, true));
+    expect(hit).toBeUndefined();
+  });
+
+  it("does not cross-promote across different source selections", async () => {
+    const a: SearchQuery = { keyword: "x", sources: ["nyaa"] };
+    const b: SearchQuery = { keyword: "x", sources: ["dmhy"] };
+    cacheSet(buildCacheKey(a, true), mkResponse(a, true, 1), 60);
+
+    expect(cacheGet<SearchResponse>(buildCacheKey(b, true))).toBeUndefined();
+  });
+
+  it("treats expired refined entries as a miss (does not promote stale data)", async () => {
+    const query: SearchQuery = { keyword: "expired" };
+    cacheSet(buildCacheKey(query, true), mkResponse(query, true, 42), -1);
+
+    expect(cacheGet<SearchResponse>(buildCacheKey(query, true))).toBeUndefined();
   });
 });
