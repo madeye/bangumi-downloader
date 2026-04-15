@@ -96,6 +96,10 @@ export default function HomePage() {
     setCopyStatus(null);
     setError(null);
 
+    // The server may promote a cached refined response into the fast slot
+    // when one exists, in which case the second pass is pure waste.
+    if (fast.refined) return;
+
     // Second pass: LLM-backed refine runs in the background. Swap in when it
     // arrives as long as the user hasn't kicked off a newer search.
     setIsRefining(true);

@@ -56,6 +56,10 @@ export interface SearchResponse {
   warnings: string[];
   groups: ResultGroup[];
   ungrouped: SearchResultItem[];
+  // True when groups/ungrouped reflect the LLM refine pass. The client uses
+  // this to skip its background refine fetch when the fast-path response is
+  // already the refined version (served from cache).
+  refined: boolean;
 }
 
 export interface ProviderResult {

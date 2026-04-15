@@ -66,6 +66,14 @@ export async function searchTorrents(
   const cached = cacheGet<SearchResponse>(cacheKey);
   if (cached) return cached;
 
+  // On the fast path, promote a cached refined response if we already have
+  // one — the client can then skip the follow-up refine fetch entirely. Falls
+  // through to a fresh fast fetch if there's no refined entry yet.
+  if (!useLlm) {
+    const refinedCached = cacheGet<SearchResponse>(buildCacheKey(query, true));
+    if (refinedCached) return refinedCached;
+  }
+
   const enabledProviders = selectProviders(query.sources);
   const results = await Promise.all(enabledProviders.map((provider) => provider.search(query)));
 
@@ -87,7 +95,8 @@ export async function searchTorrents(
     total: deduped.length,
     warnings,
     groups,
-    ungrouped
+    ungrouped,
+    refined: useLlm
   };
   cacheSet(cacheKey, response, cacheTtlSeconds());
   return response;
