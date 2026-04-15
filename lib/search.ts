@@ -96,6 +96,6 @@ export async function searchTorrents(
     ungrouped,
     refined: useLlm
   };
-  cacheSet(cacheKey, response, cacheTtlSeconds());
+  cacheSet(buildCacheKey(query, useLlm), response, cacheTtlSeconds());
   return response;
 }
