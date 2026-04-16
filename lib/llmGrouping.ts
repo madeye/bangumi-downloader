@@ -150,8 +150,8 @@ async function flushBatch(cfg: LlmConfig): Promise<void> {
 
     // Execute chunks — serialise to avoid concurrent 429s on rate-limited
     // backends, but still only make the minimum number of calls.
-    let combinedRemap: SeriesRemap = new Map();
-    let combinedRanking: GroupRanking = new Map();
+    const combinedRemap: SeriesRemap = new Map();
+    const combinedRanking: GroupRanking = new Map();
 
     for (const chunk of chunks) {
       const result = await callLlm(cfg, chunk.labels, chunk.groups, mergedLabelToKey);
