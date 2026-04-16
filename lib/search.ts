@@ -6,6 +6,7 @@ import { cacheGet, cacheSet } from "@/lib/cache";
 import { dedupeItems } from "@/lib/dedupe";
 import { annotateAndGroup } from "@/lib/grouping";
 import { refineWithLlm } from "@/lib/llmGrouping";
+import { ruleBasedMerge } from "@/lib/ruleMerger";
 import type { SearchProvider, SearchQuery, SearchResponse, SearchSource } from "@/lib/types";
 
 const DEFAULT_CACHE_TTL_SECONDS = 900; // 15 minutes
@@ -78,12 +79,25 @@ export async function searchTorrents(
   const rawItems = results.flatMap((result) => result.items);
   const deduped = dedupeItems(rawItems);
 
-  const refine = useLlm
+  // Rule-based merger handles deterministic cases (shared Latin alias,
+  // substring containment, noise-suffix stripping, static group reputation).
+  // Always runs — cheap and instant.
+  const rules = ruleBasedMerge(deduped);
+
+  // LLM refine pass merges what rules couldn't (romaji variants, creative
+  // translations, unknown fansub groups). Its output is layered on top.
+  const llm = useLlm
     ? await refineWithLlm(deduped)
     : { seriesRemap: new Map<string, string>(), groupRanking: new Map<string, number>() };
+
+  // Merge: LLM remap wins over rules when both map the same key.
+  const mergedRemap = new Map([...rules.seriesRemap, ...llm.seriesRemap]);
+  // Merge rankings: LLM scores override static ones for the same group.
+  const mergedRanking = new Map([...rules.groupRanking, ...llm.groupRanking]);
+
   const { groups, ungrouped } = annotateAndGroup(deduped, {
-    seriesRemap: refine.seriesRemap,
-    groupRanking: refine.groupRanking,
+    seriesRemap: mergedRemap,
+    groupRanking: mergedRanking,
     scriptPreference: query.scriptPreference
   });
   const warnings = results.flatMap((result) => result.warnings ?? []);

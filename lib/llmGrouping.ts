@@ -10,6 +10,10 @@ import type { SearchResultItem } from "@/lib/types";
 //   2. Rank fansub/release groups by reputation — used as a tie-breaker when
 //      picking the best release per episode.
 //
+// Concurrent callers are coalesced: requests arriving within a short window
+// are merged into one (or a few) LLM calls, keeping total context under
+// 64k tokens. This minimises cost and rate-limit pressure.
+//
 // Both outputs fall back to empty on any failure, so the heuristic grouping
 // keeps working when the LLM is unavailable or times out.
 
@@ -45,12 +49,11 @@ interface CombinedResponse {
   ranking?: string[];
 }
 
-// Process-wide cache keyed on the sorted label+group inputs. Identical
-// inputs produce identical answers, so repeat searches are instant.
+// ── Process-wide LRU cache ──────────────────────────────────────────────
 const CACHE_MAX = 200;
 const refineCache = new Map<string, LlmRefine>();
 
-function cacheKey(labels: string[], groups: string[]): string {
+function refineCacheKey(labels: string[], groups: string[]): string {
   const norm = (xs: string[]) => [...xs].map((s) => s.toLowerCase()).sort().join("\u0001");
   return `${norm(labels)}\u0002${norm(groups)}`;
 }
@@ -74,11 +77,30 @@ function cacheSet(key: string, value: LlmRefine): void {
 
 const EMPTY: LlmRefine = { seriesRemap: new Map(), groupRanking: new Map() };
 
-export async function refineWithLlm(items: SearchResultItem[]): Promise<LlmRefine> {
-  const cfg = llmConfig();
-  if (!cfg) return EMPTY;
+// ── Coalescing batch queue ──────────────────────────────────────────────
+// Concurrent refineWithLlm() calls are queued and flushed together after a
+// short window. All queued labels/groups are merged into the minimum number
+// of LLM calls that fit within the 64k token budget.
 
-  // Labels (human-readable series) and the keys we need to emit back.
+const BATCH_WINDOW_MS = 100;
+// Reserve ~14k tokens for the response; prompt must fit in the rest.
+const MAX_PROMPT_TOKENS = 50_000;
+// Rough estimate: ~4 chars per token for Latin, ~1.5 for CJK.
+const CHARS_PER_TOKEN = 3;
+
+interface PendingRequest {
+  labelToKey: Map<string, string>;
+  groups: string[];
+  resolve: (r: LlmRefine) => void;
+}
+
+let pendingQueue: PendingRequest[] = [];
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function refineWithLlm(items: SearchResultItem[]): Promise<LlmRefine> {
+  const cfg = llmConfig();
+  if (!cfg) return Promise.resolve(EMPTY);
+
   const labelToKey = new Map<string, string>();
   const groupSet = new Set<string>();
   for (const item of items) {
@@ -91,51 +113,153 @@ export async function refineWithLlm(items: SearchResultItem[]): Promise<LlmRefin
   const labels = Array.from(labelToKey.keys());
   const groups = Array.from(groupSet);
 
-  // Bail out early when neither task has enough input to be useful.
-  const hasClusterWork = labels.length >= 2;
-  const hasRankWork = groups.length >= 2;
-  if (!hasClusterWork && !hasRankWork) return EMPTY;
+  if (labels.length < 2 && groups.length < 2) return Promise.resolve(EMPTY);
 
-  const key = cacheKey(labels, groups);
+  const key = refineCacheKey(labels, groups);
   const cached = cacheGet(key);
-  if (cached) return cached;
+  if (cached) return Promise.resolve(cached);
+
+  return new Promise<LlmRefine>((resolve) => {
+    pendingQueue.push({ labelToKey, groups, resolve });
+    if (!batchTimer) {
+      batchTimer = setTimeout(() => flushBatch(cfg), BATCH_WINDOW_MS);
+    }
+  });
+}
+
+async function flushBatch(cfg: LlmConfig): Promise<void> {
+  batchTimer = null;
+  const batch = pendingQueue;
+  pendingQueue = [];
+
+  // Merge all labels and groups across queued requests.
+  const mergedLabelToKey = new Map<string, string>();
+  const mergedGroupSet = new Set<string>();
+  for (const req of batch) {
+    for (const [label, key] of req.labelToKey) {
+      if (!mergedLabelToKey.has(label)) mergedLabelToKey.set(label, key);
+    }
+    for (const g of req.groups) mergedGroupSet.add(g);
+  }
+  const allLabels = Array.from(mergedLabelToKey.keys());
+  const allGroups = Array.from(mergedGroupSet);
 
   try {
-    // maxRetries: 0 — some Anthropic-compatible backends (Kimi in
-    // particular) return 429 "engine overloaded" during peak hours, and the
-    // SDK's default retries stretch a single call to 50+ seconds. Fail fast
-    // and let the heuristic fallback take over instead.
-    const client = new Anthropic({
-      apiKey: cfg.apiKey,
-      baseURL: cfg.baseURL,
-      maxRetries: 0
-    });
+    // Split into chunks that each fit within the token budget.
+    const chunks = splitByTokenBudget(allLabels, allGroups);
 
-    const response = await Promise.race([
-      client.messages.create({
-        model: cfg.model,
-        max_tokens: 2048,
-        messages: [
-          { role: "user", content: buildPrompt(labels, groups) }
-        ]
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("llm timeout")), TIMEOUT_MS)
-      )
-    ]);
+    // Execute chunks — serialise to avoid concurrent 429s on rate-limited
+    // backends, but still only make the minimum number of calls.
+    const combinedRemap: SeriesRemap = new Map();
+    const combinedRanking: GroupRanking = new Map();
 
-    const text = extractText(response);
-    const parsed = JSON.parse(stripFences(text)) as CombinedResponse;
-    const refine: LlmRefine = {
-      seriesRemap: buildRemap(parsed.groups ?? [], labelToKey),
-      groupRanking: buildRanking(parsed.ranking ?? [], groups)
+    for (const chunk of chunks) {
+      const result = await callLlm(cfg, chunk.labels, chunk.groups, mergedLabelToKey);
+      for (const [k, v] of result.seriesRemap) combinedRemap.set(k, v);
+      for (const [k, v] of result.groupRanking) combinedRanking.set(k, v);
+    }
+
+    const combined: LlmRefine = {
+      seriesRemap: combinedRemap,
+      groupRanking: combinedRanking,
     };
-    cacheSet(key, refine);
-    return refine;
+
+    // Cache the per-request exact key so repeat searches are instant.
+    for (const req of batch) {
+      const labels = Array.from(req.labelToKey.keys());
+      cacheSet(refineCacheKey(labels, req.groups), combined);
+    }
+    // Also cache the merged key.
+    cacheSet(refineCacheKey(allLabels, allGroups), combined);
+
+    for (const req of batch) req.resolve(combined);
   } catch {
-    return EMPTY;
+    for (const req of batch) req.resolve(EMPTY);
   }
 }
+
+// ── Token-budget splitting ──────────────────────────────────────────────
+
+interface PromptChunk {
+  labels: string[];
+  groups: string[];
+}
+
+function estimateTokens(labels: string[], groups: string[]): number {
+  const promptTemplate = 400; // fixed instruction text
+  const labelTokens = labels.reduce((sum, l) => sum + Math.ceil(l.length / CHARS_PER_TOKEN), 0);
+  const groupTokens = groups.reduce((sum, g) => sum + Math.ceil(g.length / CHARS_PER_TOKEN), 0);
+  // JSON overhead: brackets, commas, quotes — ~2 tokens per item.
+  const jsonOverhead = (labels.length + groups.length) * 2;
+  return promptTemplate + labelTokens + groupTokens + jsonOverhead;
+}
+
+export function splitByTokenBudget(labels: string[], groups: string[]): PromptChunk[] {
+  // Fast path: everything fits in one call.
+  if (estimateTokens(labels, groups) <= MAX_PROMPT_TOKENS) {
+    return [{ labels, groups }];
+  }
+
+  // Groups list is usually small — include the full list in every chunk so
+  // ranking is consistent. Split only the labels.
+  const groupTokens = estimateTokens([], groups);
+  const labelBudget = MAX_PROMPT_TOKENS - groupTokens;
+
+  const chunks: PromptChunk[] = [];
+  let currentLabels: string[] = [];
+  let currentTokens = 400; // prompt template
+
+  for (const label of labels) {
+    const labelCost = Math.ceil(label.length / CHARS_PER_TOKEN) + 2;
+    if (currentTokens + labelCost > labelBudget && currentLabels.length > 0) {
+      chunks.push({ labels: currentLabels, groups });
+      currentLabels = [];
+      currentTokens = 400;
+    }
+    currentLabels.push(label);
+    currentTokens += labelCost;
+  }
+  if (currentLabels.length > 0) {
+    chunks.push({ labels: currentLabels, groups });
+  }
+
+  return chunks;
+}
+
+// ── LLM caller ──────────────────────────────────────────────────────────
+
+async function callLlm(
+  cfg: LlmConfig,
+  labels: string[],
+  groups: string[],
+  labelToKey: Map<string, string>,
+): Promise<LlmRefine> {
+  const client = new Anthropic({
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL,
+    maxRetries: 0,
+  });
+
+  const response = await Promise.race([
+    client.messages.create({
+      model: cfg.model,
+      max_tokens: 2048,
+      messages: [{ role: "user", content: buildPrompt(labels, groups) }],
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("llm timeout")), TIMEOUT_MS)
+    ),
+  ]);
+
+  const text = extractText(response);
+  const parsed = JSON.parse(stripFences(text)) as CombinedResponse;
+  return {
+    seriesRemap: buildRemap(parsed.groups ?? [], labelToKey),
+    groupRanking: buildRanking(parsed.ranking ?? [], groups),
+  };
+}
+
+// ── Prompt & parsing ────────────────────────────────────────────────────
 
 function buildPrompt(labels: string[], groups: string[]): string {
   return [
