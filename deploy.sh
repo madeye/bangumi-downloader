@@ -4,9 +4,8 @@ set -euo pipefail
 # Deploy bangumi-downloader to a remote server.
 #
 # Usage:
-#   ./deploy.sh                        # uses DEPLOY_HOST env var
-#   ./deploy.sh root@sf.maxlv.net      # explicit host
-#   DEPLOY_HOST=root@host ./deploy.sh  # env var
+#   ./deploy.sh user@host              # explicit host
+#   DEPLOY_HOST=user@host ./deploy.sh  # env var
 #
 # Prerequisites:
 #   - SSH access to the host
