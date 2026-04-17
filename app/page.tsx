@@ -409,6 +409,10 @@ export default function HomePage() {
           <p>{isPending ? "正在拉取数据..." : "还没有结果，先搜一部新番试试。"}</p>
         </div>
       ) : null}
+
+      <footer className="site-footer">
+        <a href="/privacy">隐私政策</a>
+      </footer>
     </main>
   );
 }
