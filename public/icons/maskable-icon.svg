@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bangumi Torrent Finder">
+  <rect width="512" height="512" fill="#0f766e"/>
+  <circle cx="256" cy="256" r="196" fill="#ffffff"/>
+  <path fill="#0f766e" d="M152 178h208c18 0 32 14 32 32v112c0 18-14 32-32 32H152c-18 0-32-14-32-32V210c0-18 14-32 32-32Zm28 56v64h152v-64H180Zm47 32c0-20 16-36 36-36h56v28h-56c-5 0-8 3-8 8s3 8 8 8h56v28h-56c-20 0-36-16-36-36Z"/>
+  <path fill="#f97316" d="M154 382h204c11 0 20 9 20 20s-9 20-20 20H154c-11 0-20-9-20-20s9-20 20-20Z"/>
+</svg>

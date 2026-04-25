@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Bangumi Torrent Finder">
+  <rect width="180" height="180" rx="36" fill="#0f766e"/>
+  <path fill="#ffffff" d="M43 51h94c9 0 16 7 16 16v48c0 9-7 16-16 16H43c-9 0-16-7-16-16V67c0-9 7-16 16-16Zm10 27v27h74V78H53Zm26 14c0-10 8-18 18-18h25v13H97c-3 0-5 2-5 5s2 5 5 5h25v13H97c-10 0-18-8-18-18Z"/>
+  <path fill="#f97316" d="M38 143h104c4 0 8 4 8 8s-4 8-8 8H38c-4 0-8-4-8-8s4-8 8-8Z"/>
+</svg>
