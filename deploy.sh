@@ -38,11 +38,11 @@ cd "$APP_DIR"
 echo "--- git pull"
 sudo -u "$APP_USER" git pull
 
-echo "--- npm ci"
-sudo -u "$APP_USER" npm ci
+echo "--- bun install"
+sudo -u "$APP_USER" -H bash -lc 'PATH=/usr/local/bin:$PATH bun install --frozen-lockfile'
 
-echo "--- npm run build"
-sudo -u "$APP_USER" npm run build
+echo "--- bun run build"
+sudo -u "$APP_USER" -H bash -lc 'PATH=/usr/local/bin:$PATH bun run build'
 
 echo "--- restarting $SERVICE"
 systemctl restart "$SERVICE"

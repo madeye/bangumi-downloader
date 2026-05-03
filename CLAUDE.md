@@ -4,10 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- `npm run dev` — start Next.js dev server at http://localhost:3000
-- `npm run build` / `npm start` — production build / serve
-- `npm run lint` — ESLint (flat config in `eslint.config.mjs`, extends `next/core-web-vitals` + `next/typescript`)
-- `npm run typecheck` — `tsc --noEmit` (no test runner is configured)
+The project uses **bun** as the package manager and runtime (locally and in production). Lockfile is `bun.lock`.
+
+- `bun install` — install deps (use `--frozen-lockfile` in CI/deploy)
+- `bun run dev` — start Next.js dev server at http://localhost:3000
+- `bun run build` / `bun run start` — production build / serve
+- `bun run lint` — ESLint (flat config in `eslint.config.mjs`, extends `next/core-web-vitals` + `next/typescript`)
+- `bun run typecheck` — `tsc --noEmit`
+- `bun run test` — Vitest
 
 ## Environment
 
